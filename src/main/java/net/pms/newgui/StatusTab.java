@@ -21,7 +21,13 @@ package net.pms.newgui;
 import com.jgoodies.forms.builder.PanelBuilder;
 import com.jgoodies.forms.factories.Borders;
 import com.jgoodies.forms.layout.*;
-import java.awt.*;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.ComponentOrientation;
+import java.awt.Container;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
@@ -31,13 +37,17 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.text.DecimalFormat;
-import java.util.Locale;
+import java.util.List;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import net.pms.Messages;
 import net.pms.PMS;
 import net.pms.configuration.PmsConfiguration;
 import net.pms.configuration.RendererConfiguration;
+import net.pms.newgui.components.AnimatedIcon;
+import net.pms.newgui.components.AnimatedIcon.AnimatedIconStage;
+import net.pms.newgui.components.AnimatedIcon.AnimatedIconType;
+import net.pms.newgui.components.JAnimatedButton;
 import net.pms.util.BasicPlayer;
 import net.pms.util.FormLayoutUtil;
 import net.pms.util.StringUtil;
@@ -59,15 +69,15 @@ public class StatusTab {
 		public GuiUtil.FixedPanel playing;
 		public JLabel time;
 		public JFrame frame;
-		public GuiUtil.SmoothProgressBar jpb;
+		public GuiUtil.SmoothProgressBar rendererProgressBar;
 		public RendererPanel panel;
 		public String name = " ";
 		private JPanel _panel = null;
 
-		public RendererItem(RendererConfiguration r) {
-			icon = addRendererIcon(r.getRendererIcon());
+		public RendererItem(RendererConfiguration renderer) {
+			icon = addRendererIcon(renderer.getRendererIcon());
 			icon.enableRollover();
-			label = new JLabel(r.getRendererName());
+			label = new JLabel(renderer.getRendererName());
 			playingLabel = new GuiUtil.MarqueeLabel(" ");
 //			playingLabel = new GuiUtil.ScrollLabel(" ");
 			playingLabel.setForeground(Color.gray);
@@ -76,12 +86,13 @@ public class StatusTab {
 			playing.add(playingLabel);
 			time = new JLabel(" ");
 			time.setForeground(Color.gray);
-			jpb = new GuiUtil.SmoothProgressBar(0, 100);
-			jpb.setUI(new GuiUtil.SimpleProgressUI(Color.gray, Color.gray));
-			jpb.setStringPainted(true);
-			jpb.setBorderPainted(false);
-			jpb.setString(r.getAddress().getHostAddress());
-			jpb.setForeground(bufColor);
+			rendererProgressBar = new GuiUtil.SmoothProgressBar(0, 100, new GuiUtil.SimpleProgressUI(Color.gray, Color.gray));
+			rendererProgressBar.setStringPainted(true);
+			rendererProgressBar.setBorderPainted(false);
+			if (renderer.getAddress() != null) {
+				rendererProgressBar.setString(renderer.getAddress().getHostAddress());
+			}
+			rendererProgressBar.setForeground(bufColor);
 		}
 
 		@Override
@@ -89,7 +100,7 @@ public class StatusTab {
 			BasicPlayer.State state = ((BasicPlayer) e.getSource()).getState();
 			time.setText((state.playback == BasicPlayer.STOPPED || StringUtil.isZeroTime(state.position)) ? " " :
 				UMSUtils.playedDurationStr(state.position, state.duration));
-			jpb.setValue((int) (100 * state.buffer / bufferSize));
+			rendererProgressBar.setValue((int) (100 * state.buffer / bufferSize));
 			String n = (state.playback == BasicPlayer.STOPPED || StringUtils.isBlank(state.name)) ? " " : state.name;
 			if (!name.equals(n)) {
 				name = n;
@@ -131,7 +142,7 @@ public class StatusTab {
 				CellConstraints cc = new CellConstraints();
 				b.add(icon, cc.xy(1, 1));
 				b.add(label, cc.xy(1, 3, CellConstraints.CENTER, CellConstraints.DEFAULT));
-				b.add(jpb, cc.xy(1, 5));
+				b.add(rendererProgressBar, cc.xy(1, 5));
 				b.add(playing, cc.xy(1, 7, CellConstraints.CENTER, CellConstraints.DEFAULT));
 				b.add(time, cc.xy(1, 9));
 				_panel = b.getPanel();
@@ -140,11 +151,8 @@ public class StatusTab {
 		}
 	}
 
-	private ImagePanel imagePanel;
-	private PmsConfiguration configuration;
 	private JPanel renderers;
-	private JLabel jl;
-	private JProgressBar jpb;
+	private JProgressBar memoryProgressBar;
 	private GuiUtil.SegmentedProgressBarUI memBarUI;
 	private JLabel bitrateLabel;
 	private JLabel currentBitrate;
@@ -155,54 +163,119 @@ public class StatusTab {
 	private long peak;
 	private static DecimalFormat formatter = new DecimalFormat("#,###");
 	private static int bufferSize;
+	public enum ConnectionState {
+		SEARCHING, CONNECTED, DISCONNECTED, BLOCKED, UNKNOWN
+	};
+	private ConnectionState connectionState = ConnectionState.UNKNOWN;
+	private final JAnimatedButton connectionStatus = new JAnimatedButton();
+	private final AnimatedIcon searchingIcon;
+	private final AnimatedIcon connectedIcon;
+	private final AnimatedIcon disconnectedIcon;
+	private final AnimatedIcon blockedIcon;
 
+	/**
+	 * Shows a simple visual status of the server.
+	 *
+	 * @todo choose better icons for these
+	 * @param configuration 
+	 */
 	StatusTab(PmsConfiguration configuration) {
-		this.configuration = configuration;
+		// Build Animations
+		searchingIcon = new AnimatedIcon(connectionStatus, "icon-status-connecting.png");
+
+		connectedIcon = new AnimatedIcon(connectionStatus, "icon-status-connected.png");
+
+		disconnectedIcon = new AnimatedIcon(connectionStatus, "icon-status-disconnected.png");
+
+		blockedIcon = new AnimatedIcon(connectionStatus, "icon-status-warning.png");
+
 		bufferSize = configuration.getMaxMemoryBufferSize();
 	}
 
-	public JProgressBar getJpb() {
-		return jpb;
+	void setConnectionState(ConnectionState connectionState) {
+		if (connectionState == null) {
+			throw new IllegalArgumentException("connectionState cannot be null");
+		}
+		if (!connectionState.equals(this.connectionState)) {
+			this.connectionState = connectionState;
+			AnimatedIcon oldIcon = (AnimatedIcon) connectionStatus.getIcon();
+			switch (connectionState) {
+				case SEARCHING:
+					connectionStatus.setToolTipText(Messages.getString("PMS.130"));
+					searchingIcon.restartArm();
+					if (oldIcon != null) {
+						oldIcon.setNextStage(new AnimatedIconStage(AnimatedIconType.DEFAULTICON, searchingIcon, false));
+					} else {
+						connectionStatus.setIcon(searchingIcon);
+					}
+					break;
+				case CONNECTED:
+					connectionStatus.setToolTipText(Messages.getString("PMS.18"));
+					connectedIcon.restartArm();
+					if (oldIcon != null) {
+						oldIcon.setNextStage(new AnimatedIconStage(AnimatedIconType.DEFAULTICON, connectedIcon, false));
+					} else {
+						connectionStatus.setIcon(connectedIcon);
+					}
+					break;
+				case DISCONNECTED:
+					connectionStatus.setToolTipText(Messages.getString("PMS.0"));
+					disconnectedIcon.restartArm();
+					if (oldIcon != null) {
+						oldIcon.setNextStage(new AnimatedIconStage(AnimatedIconType.DEFAULTICON, disconnectedIcon, false));
+					} else {
+						connectionStatus.setIcon(disconnectedIcon);
+					}
+					break;
+				case BLOCKED:
+					connectionStatus.setToolTipText(Messages.getString("PMS.141"));
+					blockedIcon.reset();
+					if (oldIcon != null) {
+						oldIcon.setNextStage(new AnimatedIconStage(AnimatedIconType.DEFAULTICON, blockedIcon, false));
+					} else {
+						connectionStatus.setIcon(blockedIcon);
+					}
+					break;
+				default:
+					connectionStatus.setIcon(null);
+			}
+		}
 	}
 
 	public void updateCurrentBitrate() {
 		long total = 0;
-		for (RendererConfiguration r : PMS.get().getRenders()) {
-			total += r.getBuffer();
+		List<RendererConfiguration> foundRenderers = PMS.get().getFoundRenderers();
+		synchronized(foundRenderers) {
+			for (RendererConfiguration r : foundRenderers) {
+				total += r.getBuffer();
+			}
 		}
 		if (total == 0) {
 			currentBitrate.setText("0");
 		}
 	}
 
-	public JLabel getJl() {
-		return jl;
-	}
-
-	public ImagePanel getImagePanel() {
-		return imagePanel;
-	}
-
 	public JComponent build() {
 		// Apply the orientation for the locale
-		Locale locale = new Locale(configuration.getLanguage());
-		ComponentOrientation orientation = ComponentOrientation.getOrientation(locale);
+		ComponentOrientation orientation = ComponentOrientation.getOrientation(PMS.getLocale());
 
 		String colSpec = FormLayoutUtil.getColSpec("pref, 30dlu, fill:pref:grow, 30dlu, pref", orientation);
-		//                                             1     2          3           4     5        
+		//                                             1     2          3           4     5
 
+		//RowSpec.decode("bottom:max(50dlu;pref)");
 		FormLayout layout = new FormLayout(colSpec,
-			//                          1     2          3            4     5        
+			//                          1     2          3            4     5
 			//                   //////////////////////////////////////////////////
 			  "p,"               // Detected Media Renderers --------------------//  1
 			+ "9dlu,"            //                                              //
 			+ "fill:p:grow,"     //                 <renderers>                  //  3
 			+ "3dlu,"            //                                              //
 			+ "p,"               // ---------------------------------------------//  5
+			+ "10dlu,"           //           |                       |          //
+			+ "[10pt,p],"        // Connected |  Memory Usage         |<bitrate> //  7
+			+ "1dlu,"            //           |                       |          //
+			+ "[30pt,p],"        //  <icon>   |  <statusbar>          |          //  9
 			+ "3dlu,"            //           |                       |          //
-			+ "p,"               // Connected |  Memory Usage         |<bitrate> //  7
-			+ "3dlu,"            //           |                       |          //
-			+ "p,"               //  <icon>   |  <statusbar>          |          //  9
 			                     //////////////////////////////////////////////////
 		);
 
@@ -231,39 +304,38 @@ public class StatusTab {
 
 		cmp = builder.addSeparator(null, FormLayoutUtil.flip(cc.xyw(1, 5, 5), colSpec, orientation));
 
-		// Connected
-		jl = new JLabel(Messages.getString("StatusTab.3"));
-		builder.add(jl, FormLayoutUtil.flip(cc.xy(1, 7,  "center, top"), colSpec, orientation));
-		jl.setFont(bold);
-		jl.setForeground(fgColor);
+		connectedIcon.start();
+		searchingIcon.start();
+		disconnectedIcon.start();
+		connectionStatus.setFocusable(false);
+		builder.add(connectionStatus, FormLayoutUtil.flip(cc.xywh(1, 7, 1, 3, CellConstraints.CENTER, CellConstraints.TOP), colSpec, orientation));
 
-		imagePanel = buildImagePanel("/resources/images/icon-status-connecting.png");
-		builder.add(imagePanel, FormLayoutUtil.flip(cc.xy(1, 9), colSpec, orientation));
+		// Set initial connection state
+		setConnectionState(ConnectionState.SEARCHING);
 
 		// Memory
-		jpb = new JProgressBar(0, 100);
-		jpb.setStringPainted(true);
-		jpb.setForeground(new Color(75, 140, 181));
-		jpb.setString(Messages.getString("StatusTab.5"));
 		memBarUI = new GuiUtil.SegmentedProgressBarUI(Color.white, Color.gray);
 		memBarUI.setActiveLabel("{}", Color.white, 0);
 		memBarUI.setActiveLabel("{}", Color.red, 90);
 		memBarUI.addSegment("", memColor);
 		memBarUI.addSegment("", bufColor);
 		memBarUI.setTickMarks(getTickMarks(), "{}");
-		jpb.setUI(memBarUI);
+		memoryProgressBar = new GuiUtil.CustomUIProgressBar(0, 100, memBarUI);
+		memoryProgressBar.setStringPainted(true);
+		memoryProgressBar.setForeground(new Color(75, 140, 181));
+		memoryProgressBar.setString(Messages.getString("StatusTab.5"));
 
 		JLabel mem = builder.addLabel("<html><b>" + Messages.getString("StatusTab.6") + "</b> (" + Messages.getString("StatusTab.12") + ")</html>", FormLayoutUtil.flip(cc.xy(3, 7), colSpec, orientation));
 		mem.setForeground(fgColor);
-		builder.add(jpb, FormLayoutUtil.flip(cc.xyw(3, 9, 1), colSpec, orientation));
+		builder.add(memoryProgressBar, FormLayoutUtil.flip(cc.xyw(3, 9, 1), colSpec, orientation));
 
 		// Bitrate
 		String bitColSpec = "left:pref, 3dlu, right:pref:grow";
-		PanelBuilder bitrateBuilder = new PanelBuilder(new FormLayout(bitColSpec, "p, 1dlu, p, 1dlu, p"));	
+		PanelBuilder bitrateBuilder = new PanelBuilder(new FormLayout(bitColSpec, "p, 1dlu, p, 1dlu, p"));
 
 		bitrateLabel = new JLabel("<html><b>" + Messages.getString("StatusTab.13") + "</b> (" + Messages.getString("StatusTab.11") + ")</html>");
 		bitrateLabel.setForeground(fgColor);
-		bitrateBuilder.add(bitrateLabel, FormLayoutUtil.flip(cc.xyw(1, 1, 3, "left, top"), colSpec, orientation));
+		bitrateBuilder.add(bitrateLabel, FormLayoutUtil.flip(cc.xy(1, 1), bitColSpec, orientation));
 
 		currentBitrateLabel = new JLabel(Messages.getString("StatusTab.14"));
 		currentBitrateLabel.setForeground(fgColor);
@@ -313,22 +385,7 @@ public class StatusTab {
 		}
 	}
 
-	public ImagePanel buildImagePanel(String url) {
-		BufferedImage bi = null;
-
-		if (url != null) {
-			try {
-				bi = ImageIO.read(LooksFrame.class.getResourceAsStream(url));
-			} catch (IOException e) {
-				LOGGER.debug("Caught exception", e);
-			}
-		}
-
-		return new ImagePanel(bi);
-	}
-
 	public void addRenderer(final RendererConfiguration renderer) {
-
 		final RendererItem r = new RendererItem(renderer);
 		r.addTo(renderers);
 		renderer.setGuiComponents(r);
@@ -361,7 +418,6 @@ public class StatusTab {
 				});
 			}
 		});
-
 	}
 
 	public static void updateRenderer(final RendererConfiguration renderer) {
@@ -392,9 +448,15 @@ public class StatusTab {
 
 			if (icon.matches(".*\\S+://.*")) {
 				try {
-					return ImageIO.read(new URL(icon));
-				} catch (Exception e) {
-					LOGGER.debug("Failed to read icon url: " + e);
+					bi = ImageIO.read(new URL(icon));
+				} catch (IOException e) {
+					LOGGER.debug("Error reading icon url: " + e);
+				}
+				if (bi != null) {
+					return bi;
+				} else {
+					LOGGER.debug("Unable to read icon url \"{}\", using \"{}\" instead.", icon, RendererConfiguration.UNKNOWN_ICON);
+					icon = RendererConfiguration.UNKNOWN_ICON;
 				}
 			}
 
@@ -434,12 +496,21 @@ public class StatusTab {
 					is = LooksFrame.class.getResourceAsStream("/renderers/" + icon);
 				}
 
+				if (is == null) {
+					LOGGER.debug("Unable to read icon \"{}\", using \"{}\" instead.", icon, RendererConfiguration.UNKNOWN_ICON);
+					is = LooksFrame.class.getResourceAsStream("/resources/images/clients/" + RendererConfiguration.UNKNOWN_ICON);
+				}
+
 				if (is != null) {
 					bi = ImageIO.read(is);
 				}
+
 			} catch (IOException e) {
 				LOGGER.debug("Caught exception", e);
 			}
+		}
+		if (bi == null) {
+			LOGGER.debug("Failed to load icon: " + icon);
 		}
 		return bi;
 	}
@@ -450,13 +521,22 @@ public class StatusTab {
 	}
 
 	public void updateMemoryUsage() {
-		long max = Runtime.getRuntime().maxMemory() / 1048576;
-		long used = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1048576;
+		final long max = Runtime.getRuntime().maxMemory() / 1048576;
+		final long used = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1048576;
 		long buf = 0;
-		for (RendererConfiguration r : PMS.get().getRenders()) {
-			buf += (r.getBuffer());
+		List<RendererConfiguration> foundRenderers = PMS.get().getFoundRenderers();
+		synchronized (foundRenderers) {
+			for (RendererConfiguration r : PMS.get().getFoundRenderers()) {
+				buf += (r.getBuffer());
+			}
 		}
-		memBarUI.setValues(0, (int) max, (int) (used - buf), (int) buf);
+		final long buffer = buf;
+		SwingUtilities.invokeLater(new Runnable() {
+			@Override
+			public void run() {
+				memBarUI.setValues(0, (int) max, (int) (used - buffer), (int) buffer);
+			}
+		});
 	}
 
 	private void startMemoryUpdater() {
@@ -467,7 +547,7 @@ public class StatusTab {
 					updateMemoryUsage();
 					try {
 						Thread.sleep(2000);
-					} catch (Exception e) {
+					} catch (InterruptedException e) {
 						return;
 					}
 				}

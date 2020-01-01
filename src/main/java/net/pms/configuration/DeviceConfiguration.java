@@ -32,21 +32,21 @@ public class DeviceConfiguration extends PmsConfiguration {
 	private static HashMap<String, String> xref;
 	private static File deviceDir;
 
-	public DeviceConfiguration() {
+	public DeviceConfiguration() throws InterruptedException {
 		super(0);
 	}
 
-	public DeviceConfiguration(File f, String uuid) throws ConfigurationException {
+	public DeviceConfiguration(File f, String uuid) throws ConfigurationException, InterruptedException {
 		super(f, uuid);
 		inherit(this);
 	}
 
-	public DeviceConfiguration(RendererConfiguration ref) throws ConfigurationException {
+	public DeviceConfiguration(RendererConfiguration ref) throws ConfigurationException, InterruptedException {
 		super(0);
 		inherit(ref);
 	}
 
-	public DeviceConfiguration(RendererConfiguration ref, InetAddress ia) throws ConfigurationException {
+	public DeviceConfiguration(RendererConfiguration ref, InetAddress ia) throws ConfigurationException, InterruptedException {
 		super(0);
 		deviceConf = initConfiguration(ia);
 		inherit(ref);
@@ -81,11 +81,9 @@ public class DeviceConfiguration extends PmsConfiguration {
 		// Sync our internal PmsConfiguration vars
 		// TODO: create new objects here instead?
 		tempFolder = baseConf.tempFolder;
-		programPaths = baseConf.programPaths;
 		filter = baseConf.filter;
 
 		// Initialize our internal RendererConfiguration vars
-		renderCache = new HashMap<>();
 		sortedHeaderMatcher = ref.sortedHeaderMatcher;
 		// Note: intentionally omitting 'player = null' so as to preserve player state when reloading
 		loaded = true;
@@ -110,7 +108,7 @@ public class DeviceConfiguration extends PmsConfiguration {
 		if (uuid != null && ! uuid.equals(this.uuid)) {
 			this.uuid = uuid;
 			// Switch to the custom device conf for this new uuid, if any
-			if (uuid != null && deviceConfs.containsKey(uuid) && deviceConf != deviceConfs.get(uuid)) {
+			if (deviceConfs.containsKey(uuid) && deviceConf != deviceConfs.get(uuid)) {
 				deviceConf = initConfiguration(null);
 				reset();
 			}
@@ -196,7 +194,12 @@ public class DeviceConfiguration extends PmsConfiguration {
 		String filename = f.getName();
 		try {
 			conf.load(f);
-			String[] ids = conf.getStringArray("device");
+			String s = conf.getString(DEVICE_ID, "");
+			if (s.isEmpty() && conf.containsKey("device")) {
+				// Backward compatibility
+				s = conf.getString("device", "");
+			}
+			String[] ids = s.split("\\s*,\\s*");
 			for (String id : ids) {
 				if (StringUtils.isNotBlank(id)) {
 					deviceConfs.put(id, conf);
@@ -257,7 +260,7 @@ public class DeviceConfiguration extends PmsConfiguration {
 			conf.add("# Options in this file override the default settings for the specific " + r.getSimpleName(r) + " device(s) listed below.");
 			conf.add("# Specify devices by uuid (or address if no uuid), separated by commas if more than one.");
 			conf.add("");
-			conf.add("Device = " + r.getId());
+			conf.add(DEVICE_ID + " = " + r.getId());
 
 			FileUtils.writeLines(file, "utf-8", conf, "\r\n");
 

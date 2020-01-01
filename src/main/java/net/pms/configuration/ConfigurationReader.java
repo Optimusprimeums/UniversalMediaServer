@@ -20,10 +20,10 @@ package net.pms.configuration;
 
 import java.io.File;
 import java.util.*;
-import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.CompositeConfiguration;
-import org.apache.commons.configuration.PropertiesConfiguration;
+import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.ConversionException;
+import org.apache.commons.configuration.PropertiesConfiguration;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -32,12 +32,11 @@ import org.slf4j.LoggerFactory;
 /**
  * Helper class that implements common getters for the various types stored in renderer confs and PMS.conf.
  */
-// this class and all its methods are package private
-class ConfigurationReader {
+public class ConfigurationReader {
 	private static final Logger LOGGER = LoggerFactory.getLogger(ConfigurationReader.class);
 	private Map<String, Object> logMap = new HashMap<>();
 	private final Configuration configuration;
-	private final boolean logOverrides;
+	private boolean logOverrides;
 	private Configuration dConf;
 	private String dTag;
 
@@ -285,5 +284,13 @@ class ConfigurationReader {
 
 		log(key, value, def);
 		return value;
+	}
+	
+	public boolean getLogOverrides() {
+		return logOverrides;
+	}
+	
+	public void setLogOverrides(boolean logOverrides) {
+		this.logOverrides = logOverrides;
 	}
 }

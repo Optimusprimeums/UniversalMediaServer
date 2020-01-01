@@ -5,34 +5,35 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import javax.swing.*;
+import javax.swing.plaf.ProgressBarUI;
 import org.apache.commons.lang3.StringUtils;
 
 public final class GuiUtil {
 
-	public static class MyComboBoxModel extends DefaultComboBoxModel<Object> {
-		private static final long serialVersionUID = -9094365556516842551L;
-
-		public MyComboBoxModel() {
-			super();
-		}
-
-		public MyComboBoxModel(Object[] items) {
-			super(items);
-		}
-
-		@Override
-		public Object getElementAt(int index) {
-			String s = (String) super.getElementAt(index);
-			return s;
-		}
+	/**
+	 * Wraps a {@link JComponent} into a {@link JPanel} using a {@link BorderLayout}, adding it to WEST.<br>
+	 * If using this method for e.g. a {@link JCheckBox} and adding it to a layout, the {@link JCheckBox} won't
+	 * span the entire space and thus, it won't change the checked state if clicking outside of it.
+	 *
+	 * @param component the component
+	 * @return the preferred size component
+	 */
+	public static JComponent getPreferredSizeComponent(JComponent component) {
+		JPanel pWrap = new JPanel(new BorderLayout());
+		pWrap.add(component, BorderLayout.WEST);
+		return pWrap;
 	}
 
 	// A progress bar with smooth transitions
-	public static class SmoothProgressBar extends JProgressBar {
+	public static class SmoothProgressBar extends CustomUIProgressBar {
 		private static final long serialVersionUID = 4418306779403459913L;
 
 		public SmoothProgressBar(int min, int max) {
-			super(min, max);
+			super(min, max, null);
+		}
+
+		public SmoothProgressBar(int min, int max, ProgressBarUI ui) {
+			super(min, max, ui);
 		}
 
 		@Override
@@ -221,11 +222,11 @@ public final class GuiUtil {
 				color = c;
 			}
 		}
-		ArrayList<Segment> segments;
-		ArrayList<Segment> mainLabel;
+		private ArrayList<Segment> segments;
+		private ArrayList<Segment> mainLabel;
 
-		int tickmarks;
-		String tickLabel;
+		private int tickmarks;
+		private String tickLabel;
 
 		public SegmentedProgressBarUI() {
 			this(null, null);
@@ -240,25 +241,25 @@ public final class GuiUtil {
 			tickLabel = "{}";
 		}
 
-		public int addSegment(String label, Color c) {
+		public synchronized int addSegment(String label, Color c) {
 			// Set color transparency to 50% so tickmarks are visible
 			segments.add(new Segment(label, new Color(c.getRed(), c.getGreen(), c.getBlue(), 128)));
 			return segments.size() - 1;
 		}
 
-		public void setActiveLabel(String label, Color c, int pct) {
+		public synchronized void setActiveLabel(String label, Color c, int pct) {
 			Segment s = new Segment(label, c);
 			// This label will be activated if progress equals or exceeds this percentage
 			s.val = pct;
 			mainLabel.add(s);
 		}
 
-		public void setTickMarks(int units, String label) {
+		public synchronized void setTickMarks(int units, String label) {
 			tickmarks = units;
 			tickLabel = label;
 		}
 
-		public void setValues(int min, int max, int... vals) {
+		public synchronized void setValues(int min, int max, int... vals) {
 			int total = 0;
 			for (int i = 0; i < vals.length; i++) {
 				segments.get(i).val = vals[i];
@@ -269,7 +270,7 @@ public final class GuiUtil {
 			progressBar.setValue(total);
 		}
 
-		public int total() {
+		private int total() {
 			int size = 0;
 			for (Segment s : segments) {
 				size += s.val;
@@ -278,7 +279,7 @@ public final class GuiUtil {
 		}
 
 		@Override
-		protected void paintDeterminate(Graphics g, JComponent c) {
+		protected synchronized void paintDeterminate(Graphics g, JComponent c) {
 			Insets b = progressBar.getInsets();
 			int w = progressBar.getWidth() - (b.right + b.left);
 			int h = progressBar.getHeight() - (b.top + b.bottom);
@@ -329,7 +330,7 @@ public final class GuiUtil {
 			}
 		}
 
-		public void paintTicks(Graphics g, int x0, int step, int max) {
+		private void paintTicks(Graphics g, int x0, int step, int max) {
 			if (step < 1) {
 				return;
 			}
@@ -362,13 +363,33 @@ public final class GuiUtil {
 		}
 
 		@Override
-		protected Color getSelectionForeground() {
+		protected synchronized Color getSelectionForeground() {
 			return fg;
 		}
 
 		@Override
-		protected Color getSelectionBackground() {
+		protected synchronized Color getSelectionBackground() {
 			return bg;
+		}
+	}
+
+	// A JProgressBar with a persistent custom ProgressBarUI.
+	// This is to prevent replacement of the initial custom ui with
+	// the laf's default ProgressBarUI as a result of future
+	// invocations of JProgressBar.UpdateUI()
+	public static class CustomUIProgressBar extends JProgressBar {
+		private ProgressBarUI ui;
+
+		public CustomUIProgressBar(int min, int max, ProgressBarUI ui) {
+			super(min, max);
+			this.ui = ui;
+			setUI(ui);
+		}
+
+		@Override
+		public void setUI(javax.swing.plaf.ProgressBarUI ui) {
+			// Always prefer our own ui if we have one
+			super.setUI(this.ui != null ? this.ui : ui);
 		}
 	}
 
@@ -536,6 +557,15 @@ public final class GuiUtil {
 			}
 
 			dim.height += rowHeight;
+		}
+	}
+	
+	public static void enableContainer(Container c, boolean enable) {
+		for (Component component : c.getComponents()) {
+			component.setEnabled(enable);
+			if (component instanceof Container) {
+				enableContainer((Container)component, enable);
+			}
 		}
 	}
 }

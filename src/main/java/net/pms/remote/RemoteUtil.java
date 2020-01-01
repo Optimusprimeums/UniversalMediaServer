@@ -12,7 +12,6 @@ import java.net.URLClassLoader;
 import java.net.URLConnection;
 import java.nio.charset.Charset;
 import java.util.*;
-
 import net.pms.Messages;
 import net.pms.PMS;
 import net.pms.configuration.IpFilter;
@@ -20,27 +19,23 @@ import net.pms.configuration.RendererConfiguration;
 import net.pms.configuration.WebRender;
 import net.pms.dlna.DLNAMediaInfo;
 import net.pms.dlna.Range;
+import net.pms.network.HTTPResource;
 import net.pms.newgui.LooksFrame;
 import net.pms.util.FileWatcher;
+import net.pms.util.Languages;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@SuppressWarnings("restriction")
 public class RemoteUtil {
 	private static final Logger LOGGER = LoggerFactory.getLogger(RemoteUtil.class);
 
-	public static final String MIME_MP4 = "video/mp4";
-	public static final String MIME_OGG = "video/ogg";
-	public static final String MIME_WEBM = "video/webm";
 	//public static final String MIME_TRANS = MIME_MP4;
-	public static final String MIME_TRANS = MIME_OGG;
+	public static final String MIME_TRANS = HTTPResource.OGG_TYPEMIME;
 	//public static final String MIME_TRANS = MIME_WEBM;
-	public static final String MIME_MP3 = "audio/mpeg";
-	public static final String MIME_WAV = "audio/wav";
-	public static final String MIME_PNG = "image/png";
-	public static final String MIME_JPG = "image/jpeg";
 
 	public static void respond(HttpExchange t, String response, int status, String mime) {
 		if (response != null) {
@@ -148,11 +143,11 @@ public class RemoteUtil {
 		return !PMS.getConfiguration().getIpFiltering().allowed(t.getRemoteAddress().getAddress()) || !PMS.isReady();
 	}
 
-	private static Range nullRange(long len) {
-		return Range.create(0, len, 0.0, 0.0);
+	private static Range.Byte nullRange(long len) {
+		return new Range.Byte(0L, len);
 	}
 
-	public static Range parseRange(Headers hdr, long len) {
+	public static Range.Byte parseRange(Headers hdr, long len) {
 		if (hdr == null) {
 			return nullRange(len);
 		}
@@ -165,7 +160,7 @@ public class RemoteUtil {
 		String[] tmp = range.split("=")[1].split("-");
 		long start = Long.parseLong(tmp[0]);
 		long end = tmp.length == 1 ? len : Long.parseLong(tmp[1]);
-		return Range.create(start, end, 0.0, 0.0);
+		return new Range.Byte(start, end);
 	}
 
 	public static void sendLogo(HttpExchange t) throws IOException {
@@ -176,8 +171,23 @@ public class RemoteUtil {
 	}
 
 	public static boolean directmime(String mime) {
-		return mime != null && (mime.equals(MIME_MP4) || mime.equals(MIME_WEBM) || mime.equals(MIME_OGG) ||
-			mime.equals(MIME_MP3) || mime.equals(MIME_PNG) || mime.equals(MIME_JPG)/*|| mime.equals(MIME_WAV)*/);
+		if (
+			mime != null &&
+			(
+				mime.equals(HTTPResource.MP4_TYPEMIME) ||
+				mime.equals(HTTPResource.WEBM_TYPEMIME) ||
+				mime.equals(HTTPResource.OGG_TYPEMIME) ||
+				mime.equals(HTTPResource.AUDIO_OGA_TYPEMIME) ||
+				mime.equals(HTTPResource.AUDIO_MP3_TYPEMIME) ||
+				mime.equals(HTTPResource.PNG_TYPEMIME) ||
+				mime.equals(HTTPResource.JPEG_TYPEMIME) ||
+				mime.equals(HTTPResource.GIF_TYPEMIME)
+			)
+		) {
+			return true;
+		}
+
+		return false;
 	}
 
 	public static String userName(HttpExchange t) {
@@ -213,7 +223,7 @@ public class RemoteUtil {
 
 	public static String getCookie(String name, HttpExchange t) {
 		String cstr = t.getRequestHeaders().getFirst("Cookie");
-		if (! StringUtils.isEmpty(cstr)) {
+		if (!StringUtils.isEmpty(cstr)) {
 			name += "=";
 			for (String str : cstr.trim().split("\\s*;\\s*")) {
 				if (str.startsWith(name)) {
@@ -265,7 +275,7 @@ public class RemoteUtil {
 
 	public static boolean transMp4(String mime, DLNAMediaInfo media) {
 		LOGGER.debug("mp4 profile " + media.getH264Profile());
-		return mime.equals(MIME_MP4) && (PMS.getConfiguration().isWebMp4Trans() || media.getAvcAsInt() >= 40);
+		return mime.equals(HTTPResource.MP4_TYPEMIME) && (PMS.getConfiguration().isWebMp4Trans() || media.getAvcAsInt() >= 40);
 	}
 
 	private static IpFilter bumpFilter = null;
@@ -299,39 +309,38 @@ public class RemoteUtil {
 
 	public static LinkedHashSet<String> getLangs(HttpExchange t) {
 		String hdr = t.getRequestHeaders().getFirst("Accept-language");
-		LinkedHashSet<String> ret = new LinkedHashSet<>();
+		LinkedHashSet<String> result = new LinkedHashSet<>();
 		if (StringUtils.isEmpty(hdr)) {
-			return ret;
+			return result;
 		}
 
 		String[] tmp = hdr.split(",");
-		for (String l : tmp) {
-			String[] l1 = l.split(";");
-			String str = l1[0];
-			//we need to remove the part after -
-			int pos = str.indexOf("-");
-			if (pos != -1) {
-				 str = str.substring(0, pos);
-			}
-			ret.add(str);
+		for (String language : tmp) {
+			String[] l1 = language.split(";");
+			result.add(l1[0]);
 		}
-		return ret;
+		return result;
 	}
 
-	public static String getFirstLang(HttpExchange t) {
-		LinkedHashSet<String> tmp = getLangs(t);
-		if (tmp.isEmpty()) {
-			return "";
+	public static String getFirstSupportedLanguage(HttpExchange t) {
+		LinkedHashSet<String> languages = getLangs(t);
+		for (String language : languages) {
+			String code = Languages.toLanguageTag(language);
+			if (code != null) {
+				return code;
+			}
 		}
-		return tmp.iterator().next();
+		return "";
 	}
 
 	public static String getMsgString(String key, HttpExchange t) {
-		String lang = "";
-		if(PMS.getConfiguration().useWebLang()) {
-			lang = getFirstLang(t);
+		if (PMS.getConfiguration().useWebLang()) {
+			String lang = getFirstSupportedLanguage(t);
+			if (!lang.isEmpty()) {
+				return Messages.getString(key, Locale.forLanguageTag(lang));
+			}
 		}
-		return Messages.getString(key, lang);
+		return Messages.getString(key);
 	}
 
 	/**
@@ -456,6 +465,8 @@ public class RemoteUtil {
 					t = compile(getInputStream(filename));
 					templates.put(filename, t);
 					PMS.getFileWatcher().add(new FileWatcher.Watch(url.getFile(), recompiler));
+				} else {
+					LOGGER.warn("Couldn't find web template \"{}\"", filename);
 				}
 			}
 			return t;

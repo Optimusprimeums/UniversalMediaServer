@@ -18,9 +18,8 @@
  */
 package net.pms.dlna;
 
+import static org.assertj.core.api.Assertions.*;
 import org.junit.Test;
-
-import static org.fest.assertions.Assertions.assertThat;
 
 public class DLNAMediaAudioTest {
 

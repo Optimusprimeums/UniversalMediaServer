@@ -37,13 +37,13 @@ public class ZippedEntry extends DLNAResource implements IPushOutput {
 	private ZipFile zipFile;
 
 	@Override
-	protected String getThumbnailURL() {
+	protected String getThumbnailURL(DLNAImageProfile profile) {
 		if (getType() == Format.IMAGE || getType() == Format.AUDIO) {
 			// no thumbnail support for now for zipped videos
 			return null;
 		}
 
-		return super.getThumbnailURL();
+		return super.getThumbnailURL(profile);
 	}
 
 	public ZippedEntry(File file, String zeName, long length) {
@@ -90,7 +90,6 @@ public class ZippedEntry extends DLNAResource implements IPushOutput {
 	@Override
 	public boolean isValid() {
 		resolveFormat();
-		setHasExternalSubtitles(FileUtil.isSubtitlesExists(file, null));
 		return getFormat() != null;
 	}
 
@@ -157,13 +156,16 @@ public class ZippedEntry extends DLNAResource implements IPushOutput {
 				InputFile input = new InputFile();
 				input.setPush(this);
 				input.setSize(length());
-				getFormat().parse(getMedia(), input, getType());
+				getFormat().parse(getMedia(), input, getType(), null);
+				if (getMedia() != null && getMedia().isSLS()) {
+					setFormat(getMedia().getAudioVariantFormat());
+				}
 			}
 		}
 	}
 
 	@Override
-	public InputStream getThumbnailInputStream() throws IOException {
+	public DLNAThumbnailInputStream getThumbnailInputStream() throws IOException {
 		if (getMedia() != null && getMedia().getThumb() != null) {
 			return getMedia().getThumbnailInputStream();
 		} else {

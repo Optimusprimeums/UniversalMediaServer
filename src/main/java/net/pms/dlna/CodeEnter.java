@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class CodeEnter extends VirtualFolder {
+	@SuppressWarnings("unused")
 	private static final Logger LOGGER = LoggerFactory.getLogger(CodeEnter.class);
 
 	private DLNAResource resource;
@@ -32,7 +33,7 @@ public class CodeEnter extends VirtualFolder {
 	}
 
 	public CodeEnter(DLNAResource r) {
-		super(r.getName(), r.getThumbnailURL());
+		super(r.getName(), r.getThumbnailURL(DLNAImageProfile.JPEG_TN));
 		resource = r;
 		code = "";
 		enteredCode = "";

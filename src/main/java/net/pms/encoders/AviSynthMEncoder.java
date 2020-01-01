@@ -41,6 +41,7 @@ import net.pms.dlna.DLNAMediaSubtitle;
 import net.pms.dlna.DLNAResource;
 import net.pms.formats.Format;
 import net.pms.formats.v2.SubtitleType;
+import net.pms.newgui.GuiUtil;
 import net.pms.util.PlayerUtil;
 import net.pms.util.ProcessUtil;
 import org.apache.commons.configuration.event.ConfigurationEvent;
@@ -50,16 +51,12 @@ import org.slf4j.LoggerFactory;
 
 public class AviSynthMEncoder extends MEncoderVideo {
 	private static final Logger LOGGER = LoggerFactory.getLogger(AviSynthMEncoder.class);
+	public static final PlayerId ID = StandardPlayerId.AVI_SYNTH_MENCODER;
+	public static final String NAME = "AviSynth/MEncoder";
 
-	@Deprecated
-	public AviSynthMEncoder(PmsConfiguration configuration) {
-		this();
+	// Not to be instantiated by anything but PlayerFactory
+	AviSynthMEncoder() {
 	}
-
-	public AviSynthMEncoder() {
-	}
-
-	public static final String ID = "avsmencoder";
 
 	private JTextArea textArea;
 	private JCheckBox convertfps;
@@ -91,7 +88,7 @@ public class AviSynthMEncoder extends MEncoderVideo {
 				configuration.setAvisynthMultiThreading((e.getStateChange() == ItemEvent.SELECTED));
 			}
 		});
-		builder.add(multithreading, cc.xy(2, 3));
+		builder.add(GuiUtil.getPreferredSizeComponent(multithreading), cc.xy(2, 3));
 
 		interframe = new JCheckBox(Messages.getString("AviSynthMEncoder.13"), configuration.getAvisynthInterFrame());
 		interframe.setContentAreaFilled(false);
@@ -109,7 +106,7 @@ public class AviSynthMEncoder extends MEncoderVideo {
 				}
 			}
 		});
-		builder.add(interframe, cc.xy(2, 5));
+		builder.add(GuiUtil.getPreferredSizeComponent(interframe), cc.xy(2, 5));
 
 		interframegpu = new JCheckBox(Messages.getString("AviSynthMEncoder.15"), configuration.getAvisynthInterFrameGPU());
 		interframegpu.setContentAreaFilled(false);
@@ -119,7 +116,7 @@ public class AviSynthMEncoder extends MEncoderVideo {
 				configuration.setAvisynthInterFrameGPU((e.getStateChange() == ItemEvent.SELECTED));
 			}
 		});
-		builder.add(interframegpu, cc.xy(2, 7));
+		builder.add(GuiUtil.getPreferredSizeComponent(interframegpu), cc.xy(2, 7));
 
 		convertfps = new JCheckBox(Messages.getString("AviSynthMEncoder.3"), configuration.getAvisynthConvertFps());
 		convertfps.setContentAreaFilled(false);
@@ -129,7 +126,7 @@ public class AviSynthMEncoder extends MEncoderVideo {
 				configuration.setAvisynthConvertFps((e.getStateChange() == ItemEvent.SELECTED));
 			}
 		});
-		builder.add(convertfps, cc.xy(2, 9));
+		builder.add(GuiUtil.getPreferredSizeComponent(convertfps), cc.xy(2, 9));
 
 		String aviSynthScriptInstructions = Messages.getString("AviSynthMEncoder.4") +
 			Messages.getString("AviSynthMEncoder.5") +
@@ -200,7 +197,7 @@ public class AviSynthMEncoder extends MEncoderVideo {
 	}
 
 	@Override
-	public String id() {
+	public PlayerId id() {
 		return ID;
 	}
 
@@ -211,7 +208,7 @@ public class AviSynthMEncoder extends MEncoderVideo {
 
 	@Override
 	public String name() {
-		return "AviSynth/MEncoder";
+		return NAME;
 	}
 
 	@Override
@@ -303,14 +300,21 @@ public class AviSynthMEncoder extends MEncoderVideo {
 			}
 
 			String subLine = null;
-			if (subTrack != null && configuration.isAutoloadExternalSubtitles() && !configuration.isDisableSubtitles()) {
+			if (
+				subTrack != null &&
+				subTrack.isExternal() &&
+				configuration.isAutoloadExternalSubtitles() &&
+				!configuration.isDisableSubtitles()
+			) {
 				if (subTrack.getExternalFile() != null) {
-					LOGGER.info("AviSynth script: Using subtitle track: " + subTrack);
+					LOGGER.info("AviSynth script: Using subtitle track: {}", subTrack);
 					String function = "TextSub";
 					if (subTrack.getType() == SubtitleType.VOBSUB) {
 						function = "VobSub";
 					}
-					subLine = function + "(\"" + ProcessUtil.getShortFileNameIfWideChars(subTrack.getExternalFile().getAbsolutePath()) + "\")";
+					subLine = function + "(\"" + ProcessUtil.getShortFileNameIfWideChars(subTrack.getExternalFile()) + "\")";
+				} else {
+					LOGGER.error("External subtitles file \"{}\" is unavailable", subTrack.getName());
 				}
 			}
 
@@ -360,9 +364,6 @@ public class AviSynthMEncoder extends MEncoderVideo {
 		return file;
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
 	public boolean isCompatible(DLNAResource resource) {
 		Format format = resource.getFormat();
@@ -379,7 +380,7 @@ public class AviSynthMEncoder extends MEncoderVideo {
 		// Uninitialized DLNAMediaSubtitle objects have a null language.
 		if (subtitle != null && subtitle.getLang() != null) {
 			// This engine only supports external subtitles
-			if (subtitle.getExternalFile() != null) {
+			if (subtitle.isExternal()) {
 				return true;
 			}
 
@@ -402,7 +403,8 @@ public class AviSynthMEncoder extends MEncoderVideo {
 
 		if (
 			PlayerUtil.isVideo(resource, Format.Identifier.MKV) ||
-			PlayerUtil.isVideo(resource, Format.Identifier.MPG)
+			PlayerUtil.isVideo(resource, Format.Identifier.MPG) ||
+			PlayerUtil.isVideo(resource, Format.Identifier.OGG)
 		) {
 			return true;
 		}
